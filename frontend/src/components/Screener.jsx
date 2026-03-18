@@ -22,6 +22,47 @@ const SORT_OPTS = [
   { value: 'dist_min_52w', label: 'Dist. Mín 52w' },
 ]
 
+// Colores y estilos por tipo de razón
+const REASON_STYLE = {
+  positivo:      { bg: '#00200f', border: '#00c853', color: '#00e676', icon: '▲' },
+  leve_positivo: { bg: '#0d1a10', border: '#2e7d32', color: '#66bb6a', icon: '↑' },
+  negativo:      { bg: '#1a0005', border: '#c62828', color: '#ef5350', icon: '▼' },
+  alerta:        { bg: '#1a1000', border: '#e65100', color: '#ff9100', icon: '⚡' },
+}
+
+function ReasonTags({ reasons }) {
+  if (!reasons || reasons.length === 0) return null
+
+  // Soporta tanto el formato nuevo {texto, tipo} como el viejo string
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {reasons.map((r, i) => {
+        const isObj = typeof r === 'object'
+        const texto = isObj ? r.texto : r
+        const tipo  = isObj ? r.tipo  : 'leve_positivo'
+        const st    = REASON_STYLE[tipo] || REASON_STYLE.leve_positivo
+        return (
+          <span key={i} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            background: st.bg,
+            border: `1px solid ${st.border}`,
+            color: st.color,
+            padding: '2px 7px',
+            borderRadius: 4,
+            fontSize: 11,
+            fontWeight: 500,
+            letterSpacing: 0.3,
+            whiteSpace: 'nowrap',
+          }}>
+            <span style={{ fontSize: 9, opacity: 0.8 }}>{st.icon}</span>
+            {texto}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 function Pct({ v }) {
   if (v == null) return <span style={{ color: 'var(--text3)' }}>—</span>
   const c = v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text3)'
@@ -35,22 +76,22 @@ function Mono({ v, decimals = 2, prefix = '' }) {
 
 function RsiCell({ v }) {
   if (v == null) return <span style={{ color: 'var(--text3)' }}>—</span>
-  const c = v <= 30 ? 'var(--green)' : v >= 70 ? 'var(--red)' : 'var(--text2)'
-  const bg = v <= 30 ? '#002916' : v >= 70 ? '#200005' : 'transparent'
+  const color = v <= 30 ? 'var(--green)' : v >= 70 ? 'var(--red)' : 'var(--text2)'
+  const bg    = v <= 30 ? '#002916'      : v >= 70 ? '#200005'    : 'transparent'
   return (
-    <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: c, background: bg, padding: '1px 6px', borderRadius: 4 }}>
+    <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color, background: bg, padding: '2px 7px', borderRadius: 4 }}>
       {v}
     </span>
   )
 }
 
 export default function Screener() {
-  const [results, setResults] = useState([])
-  const [count, setCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [filters, setFilters] = useState({ grupo: '', signal: '', sort_by: 'score', order: 'desc' })
-  const [search, setSearch] = useState('')
-  const [lastRun, setLastRun] = useState(null)
+  const [results,  setResults]  = useState([])
+  const [count,    setCount]    = useState(0)
+  const [loading,  setLoading]  = useState(true)
+  const [filters,  setFilters]  = useState({ grupo: '', signal: '', sort_by: 'score', order: 'desc' })
+  const [search,   setSearch]   = useState('')
+  const [lastRun,  setLastRun]  = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -59,9 +100,7 @@ export default function Screener() {
       setResults(d.data || [])
       setCount(d.count || 0)
       setLastRun(d.last_run)
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) { console.error(e) }
     setLoading(false)
   }, [filters])
 
@@ -106,7 +145,6 @@ export default function Screener() {
         <span style={s.countBadge}>{filtered.length} activos</span>
       </div>
 
-      {/* Table */}
       {loading ? (
         <div style={s.loadingState}>
           <div style={s.spinner} />
@@ -117,7 +155,7 @@ export default function Screener() {
           <table style={s.table}>
             <thead>
               <tr>
-                {['Ticker','Grupo','Precio','Var%','RSI 14','SMA 20','SMA 50','SMA 200','Vol Ratio','Dist Mín 52w','Dist Máx 52w','Score','Señal','Razones'].map(h => (
+                {['Ticker','Grupo','Precio','Var%','RSI 14','SMA 20','SMA 50','SMA 200','Vol Ratio','Dist Mín 52w','Dist Máx 52w','Score','Señal','Análisis'].map(h => (
                   <th key={h} style={s.th}>{h}</th>
                 ))}
               </tr>
@@ -155,12 +193,8 @@ export default function Screener() {
                       fontWeight: 700, fontSize: 11, letterSpacing: 1
                     }}>{r.signal || '—'}</span>
                   </td>
-                  <td style={{ ...s.td, maxWidth: 260 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                      {(r.reasons || []).slice(0, 2).map((reason, i) => (
-                        <span key={i} style={s.reasonChip}>{reason}</span>
-                      ))}
-                    </div>
+                  <td style={{ ...s.td, minWidth: 200 }}>
+                    <ReasonTags reasons={r.reasons} />
                   </td>
                 </tr>
               ))}
@@ -196,7 +230,6 @@ const s = {
   tr: { borderBottom: '1px solid var(--border)' },
   td: { padding: '8px 12px', color: 'var(--text2)' },
   tdTicker: { padding: '8px 12px', color: 'var(--text)', fontWeight: 700, fontFamily: 'var(--mono)', letterSpacing: 1 },
-  reasonChip: { background: 'var(--bg3)', color: 'var(--text3)', padding: '1px 6px', borderRadius: 4, fontSize: 10 },
   empty: { padding: '32px', color: 'var(--text3)', textAlign: 'center', fontSize: 13 },
   footer: { color: 'var(--text3)', fontSize: 11, fontFamily: 'var(--mono)', textAlign: 'right' },
   loadingState: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 0' },

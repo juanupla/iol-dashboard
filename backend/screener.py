@@ -40,8 +40,15 @@ CEDEAR_TICKERS = [
 
 ALL_TICKERS = {
     "merval": MERVAL_TICKERS,
-    "panel": PANEL_GENERAL_LIQUIDOS,
+    "panel":  PANEL_GENERAL_LIQUIDOS,
     "cedears": CEDEAR_TICKERS,
+}
+
+# Nombre del panel en la API de IOL para cada grupo
+IOL_PANEL_NAME = {
+    "cedears": "cedears",
+    "merval":  "merval",
+    "panel":   "acciones",
 }
 
 # ── Cálculos técnicos ─────────────────────────────────────────────────────────
@@ -75,7 +82,6 @@ def calc_sma(closes: list, period: int) -> Optional[float]:
     return round(sum(closes[-period:]) / period, 2)
 
 def calc_volume_ratio(volumes: list, period: int = 20) -> Optional[float]:
-    """Ratio volumen hoy vs promedio N ruedas."""
     if len(volumes) < period + 1:
         return None
     avg = sum(volumes[-period-1:-1]) / period
@@ -92,72 +98,62 @@ def calc_dist_52w(price: float, max52: Optional[float], min52: Optional[float]) 
     return result
 
 def detect_signal(rsi, sma20, sma50, sma200, price, vol_ratio, dist_min_52w, dist_max_52w):
-    """
-    Sistema de señales con scoring.
-    Retorna: señal (string), score (int), razones (list)
-    """
     score = 0
     reasons = []
 
-    # RSI
     if rsi is not None:
         if rsi <= 25:
             score += 3
-            reasons.append(f"RSI extremadamente sobrevendido ({rsi})")
+            reasons.append({"texto": f"RSI extremo: {rsi}", "tipo": "positivo"})
         elif rsi <= 30:
             score += 2
-            reasons.append(f"RSI sobrevendido ({rsi})")
+            reasons.append({"texto": f"RSI sobrevendido: {rsi}", "tipo": "positivo"})
         elif rsi <= 40:
             score += 1
-            reasons.append(f"RSI en zona baja ({rsi})")
+            reasons.append({"texto": f"RSI bajo: {rsi}", "tipo": "leve_positivo"})
         elif rsi >= 75:
             score -= 3
-            reasons.append(f"RSI extremadamente sobrecomprado ({rsi})")
+            reasons.append({"texto": f"RSI extremo: {rsi}", "tipo": "negativo"})
         elif rsi >= 70:
             score -= 2
-            reasons.append(f"RSI sobrecomprado ({rsi})")
+            reasons.append({"texto": f"RSI sobrecomprado: {rsi}", "tipo": "negativo"})
 
-    # Cruces de medias
     if sma20 and sma50:
         if sma20 > sma50:
             score += 1
-            reasons.append("SMA20 > SMA50 (tendencia alcista corto plazo)")
+            reasons.append({"texto": "SMA20 > SMA50", "tipo": "positivo"})
         else:
             score -= 1
-            reasons.append("SMA20 < SMA50 (tendencia bajista corto plazo)")
+            reasons.append({"texto": "SMA20 < SMA50", "tipo": "negativo"})
 
     if price and sma20:
         if price > sma20:
             score += 1
-            reasons.append("Precio sobre SMA20")
+            reasons.append({"texto": "Precio sobre SMA20", "tipo": "positivo"})
         else:
             score -= 1
-            reasons.append("Precio bajo SMA20")
+            reasons.append({"texto": "Precio bajo SMA20", "tipo": "negativo"})
 
     if sma50 and sma200:
         if sma50 > sma200:
             score += 1
-            reasons.append("Golden Cross (SMA50 > SMA200)")
+            reasons.append({"texto": "Golden Cross", "tipo": "positivo"})
         else:
             score -= 1
-            reasons.append("Death Cross (SMA50 < SMA200)")
+            reasons.append({"texto": "Death Cross", "tipo": "negativo"})
 
-    # Volumen anómalo
     if vol_ratio and vol_ratio >= 2.0:
         score += 1
-        reasons.append(f"Volumen anómalo ({vol_ratio}x el promedio)")
+        reasons.append({"texto": f"Vol {vol_ratio}x promedio", "tipo": "alerta"})
 
-    # Cercanía al mínimo 52 semanas
     if dist_min_52w is not None and dist_min_52w <= 5:
         score += 2
-        reasons.append(f"Cerca del mínimo 52 semanas (+{dist_min_52w:.1f}%)")
+        reasons.append({"texto": f"Cerca mín 52w (+{dist_min_52w:.1f}%)", "tipo": "positivo"})
 
-    # Cercanía al máximo 52 semanas
     if dist_max_52w is not None and dist_max_52w >= -3:
         score -= 1
-        reasons.append(f"Cerca del máximo 52 semanas ({dist_max_52w:.1f}%)")
+        reasons.append({"texto": f"Cerca máx 52w ({dist_max_52w:.1f}%)", "tipo": "negativo"})
 
-    # Clasificar señal
     if score >= 4:
         signal = "COMPRA FUERTE"
     elif score >= 2:
@@ -177,7 +173,11 @@ def detect_signal(rsi, sma20, sma50, sma200, price, vol_ratio, dist_min_52w, dis
 
 # ── Función principal de análisis ─────────────────────────────────────────────
 
-def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA") -> dict:
+def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA", cot_prefetched: dict = None) -> dict:
+    """
+    Analiza un ticker. Si se pasa cot_prefetched (obtenido del panel en bloque),
+    evita un GET extra y reduce el rate limiting.
+    """
     base = {
         "ticker": ticker,
         "mercado": mercado,
@@ -185,9 +185,10 @@ def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA") -> dict:
         "timestamp": datetime.now().isoformat(),
     }
     try:
-        # Cotización actual
-        cot = iol_client.get_cotizacion(ticker, mercado)
-        price = cot.get("ultimoPrecio") or cot.get("ultimo")
+        # Cotización — usar prefetch si está disponible
+        cot = cot_prefetched if cot_prefetched else iol_client.get_cotizacion(ticker, mercado)
+
+        price = cot.get("ultimoPrecio") or cot.get("ultimo") or cot.get("precio")
         if not price:
             return {**base, "error": "sin precio"}
 
@@ -199,7 +200,7 @@ def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA") -> dict:
         maximo_dia = cot.get("maximo")
         minimo_dia = cot.get("minimo")
 
-        # Serie histórica
+        # Serie histórica para cálculos técnicos
         hist = iol_client.get_historico(ticker, dias=120, mercado=mercado)
         closes = []
         volumes = []
@@ -211,14 +212,12 @@ def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA") -> dict:
                     closes.append(float(p))
                     volumes.append(float(v or 0))
 
-        # Agregar precio actual
         closes.append(float(price))
         volumes.append(float(volumen or 0))
 
-        # Cálculos
-        rsi = calc_rsi(closes, 14)
-        sma20 = calc_sma(closes, 20)
-        sma50 = calc_sma(closes, 50)
+        rsi    = calc_rsi(closes, 14)
+        sma20  = calc_sma(closes, 20)
+        sma50  = calc_sma(closes, 50)
         sma200 = calc_sma(closes, 200)
         vol_ratio = calc_volume_ratio(volumes, 20)
         dist = calc_dist_52w(float(price), max52, min52)
@@ -231,24 +230,24 @@ def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA") -> dict:
 
         return {
             **base,
-            "price": price,
-            "var_dia": var_dia,
-            "apertura": apertura,
-            "maximo_dia": maximo_dia,
-            "minimo_dia": minimo_dia,
-            "volumen": volumen,
-            "max52": max52,
-            "min52": min52,
-            "rsi": rsi,
-            "sma20": sma20,
-            "sma50": sma50,
-            "sma200": sma200,
-            "vol_ratio": vol_ratio,
+            "price":        price,
+            "var_dia":      var_dia,
+            "apertura":     apertura,
+            "maximo_dia":   maximo_dia,
+            "minimo_dia":   minimo_dia,
+            "volumen":      volumen,
+            "max52":        max52,
+            "min52":        min52,
+            "rsi":          rsi,
+            "sma20":        sma20,
+            "sma50":        sma50,
+            "sma200":       sma200,
+            "vol_ratio":    vol_ratio,
             "dist_max_52w": dist["dist_max_52w"],
             "dist_min_52w": dist["dist_min_52w"],
-            "signal": signal,
-            "score": score,
-            "reasons": reasons,
+            "signal":       signal,
+            "score":        score,
+            "reasons":      reasons,
             "closes_count": len(closes),
         }
     except Exception as e:
