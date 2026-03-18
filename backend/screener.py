@@ -1,0 +1,256 @@
+"""
+Motor de análisis técnico.
+Calcula RSI, SMAs, volumen anómalo, distancia 52w y genera señales de oportunidad.
+"""
+import logging
+from typing import Optional
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+# ── Tickers ───────────────────────────────────────────────────────────────────
+
+MERVAL_TICKERS = [
+    "GGAL","YPFD","BMA","PAMP","TXAR","ALUA","CRES","SUPV","COME","TECO2",
+    "MIRG","BYMA","CVH","EDN","TRAN","VALO","HARG","LOMA","MOLI","CEPU",
+    "CGPA2","IRSA","AGRO","BOLT","BHIP","RICH","FERR","GARO","SEMI","ROSE",
+]
+
+PANEL_GENERAL_LIQUIDOS = [
+    "BBAR","CABK","CAPX","CARC","CTIO","DGCU2","DICA","DYCA","GCDI","GCLA",
+    "GRIM","HAVA","INTR","INVJ","LEDE","LONG","METR","MOLA","MPAL","MTR",
+    "OEST","PATA","PGR","POLL","RIGO","SAMI","SANO","TGNO4","TGSU2","YPFD",
+]
+
+CEDEAR_TICKERS = [
+    # Tech
+    "AAPL","MSFT","GOOGL","AMZN","TSLA","META","NVDA","ORCL","ADBE","CRM",
+    "NFLX","AMD","INTC","QCOM","AVGO","TXN","CSCO","IBM","HPQ","DELL",
+    # Finance
+    "JPM","BAC","WFC","GS","MS","BLK","AXP","V","MA","PYPL",
+    # Consumer
+    "KO","PEP","MCD","SBUX","NKE","DIS","AMGN","PFE","JNJ","MRK",
+    # Latam / Argentina related
+    "MELI","GLOB","DESP","BIOX","BABA","TSM","SONY","TM","VALE","PBR",
+    # ETFs
+    "SPY","QQQ","GLD","SLV","XOM","CVX","BA","CAT","MMM",
+    # Airlines / Travel
+    "AAL","DAL","UAL","CCL","RCL",
+]
+
+ALL_TICKERS = {
+    "merval": MERVAL_TICKERS,
+    "panel": PANEL_GENERAL_LIQUIDOS,
+    "cedears": CEDEAR_TICKERS,
+}
+
+# ── Cálculos técnicos ─────────────────────────────────────────────────────────
+
+def calc_rsi(closes: list, period: int = 14) -> Optional[float]:
+    if len(closes) < period + 1:
+        return None
+    gains, losses = 0.0, 0.0
+    for i in range(1, period + 1):
+        diff = closes[i] - closes[i - 1]
+        if diff >= 0:
+            gains += diff
+        else:
+            losses -= diff
+    avg_gain = gains / period
+    avg_loss = losses / period
+    for i in range(period + 1, len(closes)):
+        diff = closes[i] - closes[i - 1]
+        g = diff if diff >= 0 else 0
+        l = -diff if diff < 0 else 0
+        avg_gain = (avg_gain * (period - 1) + g) / period
+        avg_loss = (avg_loss * (period - 1) + l) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - 100 / (1 + rs), 2)
+
+def calc_sma(closes: list, period: int) -> Optional[float]:
+    if len(closes) < period:
+        return None
+    return round(sum(closes[-period:]) / period, 2)
+
+def calc_volume_ratio(volumes: list, period: int = 20) -> Optional[float]:
+    """Ratio volumen hoy vs promedio N ruedas."""
+    if len(volumes) < period + 1:
+        return None
+    avg = sum(volumes[-period-1:-1]) / period
+    if avg == 0:
+        return None
+    return round(volumes[-1] / avg, 2)
+
+def calc_dist_52w(price: float, max52: Optional[float], min52: Optional[float]) -> dict:
+    result = {"dist_max_52w": None, "dist_min_52w": None}
+    if max52 and max52 > 0:
+        result["dist_max_52w"] = round((price - max52) / max52 * 100, 2)
+    if min52 and min52 > 0:
+        result["dist_min_52w"] = round((price - min52) / min52 * 100, 2)
+    return result
+
+def detect_signal(rsi, sma20, sma50, sma200, price, vol_ratio, dist_min_52w, dist_max_52w):
+    """
+    Sistema de señales con scoring.
+    Retorna: señal (string), score (int), razones (list)
+    """
+    score = 0
+    reasons = []
+
+    # RSI
+    if rsi is not None:
+        if rsi <= 25:
+            score += 3
+            reasons.append(f"RSI extremadamente sobrevendido ({rsi})")
+        elif rsi <= 30:
+            score += 2
+            reasons.append(f"RSI sobrevendido ({rsi})")
+        elif rsi <= 40:
+            score += 1
+            reasons.append(f"RSI en zona baja ({rsi})")
+        elif rsi >= 75:
+            score -= 3
+            reasons.append(f"RSI extremadamente sobrecomprado ({rsi})")
+        elif rsi >= 70:
+            score -= 2
+            reasons.append(f"RSI sobrecomprado ({rsi})")
+
+    # Cruces de medias
+    if sma20 and sma50:
+        if sma20 > sma50:
+            score += 1
+            reasons.append("SMA20 > SMA50 (tendencia alcista corto plazo)")
+        else:
+            score -= 1
+            reasons.append("SMA20 < SMA50 (tendencia bajista corto plazo)")
+
+    if price and sma20:
+        if price > sma20:
+            score += 1
+            reasons.append("Precio sobre SMA20")
+        else:
+            score -= 1
+            reasons.append("Precio bajo SMA20")
+
+    if sma50 and sma200:
+        if sma50 > sma200:
+            score += 1
+            reasons.append("Golden Cross (SMA50 > SMA200)")
+        else:
+            score -= 1
+            reasons.append("Death Cross (SMA50 < SMA200)")
+
+    # Volumen anómalo
+    if vol_ratio and vol_ratio >= 2.0:
+        score += 1
+        reasons.append(f"Volumen anómalo ({vol_ratio}x el promedio)")
+
+    # Cercanía al mínimo 52 semanas
+    if dist_min_52w is not None and dist_min_52w <= 5:
+        score += 2
+        reasons.append(f"Cerca del mínimo 52 semanas (+{dist_min_52w:.1f}%)")
+
+    # Cercanía al máximo 52 semanas
+    if dist_max_52w is not None and dist_max_52w >= -3:
+        score -= 1
+        reasons.append(f"Cerca del máximo 52 semanas ({dist_max_52w:.1f}%)")
+
+    # Clasificar señal
+    if score >= 4:
+        signal = "COMPRA FUERTE"
+    elif score >= 2:
+        signal = "COMPRA"
+    elif score <= -4:
+        signal = "VENTA FUERTE"
+    elif score <= -2:
+        signal = "VENTA"
+    elif score >= 1:
+        signal = "ALCISTA"
+    elif score <= -1:
+        signal = "BAJISTA"
+    else:
+        signal = "NEUTRO"
+
+    return signal, score, reasons
+
+# ── Función principal de análisis ─────────────────────────────────────────────
+
+def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA") -> dict:
+    base = {
+        "ticker": ticker,
+        "mercado": mercado,
+        "error": None,
+        "timestamp": datetime.now().isoformat(),
+    }
+    try:
+        # Cotización actual
+        cot = iol_client.get_cotizacion(ticker, mercado)
+        price = cot.get("ultimoPrecio") or cot.get("ultimo")
+        if not price:
+            return {**base, "error": "sin precio"}
+
+        var_dia = cot.get("variacion") or cot.get("variacionPorcentual", 0)
+        volumen = cot.get("volumenNominal") or cot.get("volumen", 0)
+        max52 = cot.get("maximo52semanas")
+        min52 = cot.get("minimo52semanas")
+        apertura = cot.get("apertura")
+        maximo_dia = cot.get("maximo")
+        minimo_dia = cot.get("minimo")
+
+        # Serie histórica
+        hist = iol_client.get_historico(ticker, dias=120, mercado=mercado)
+        closes = []
+        volumes = []
+        if isinstance(hist, list):
+            for d in sorted(hist, key=lambda x: x.get("fechaHora", "")):
+                p = d.get("precio") or d.get("ultimoPrecio") or d.get("cierre")
+                v = d.get("volumenNominal") or d.get("volumen", 0)
+                if p:
+                    closes.append(float(p))
+                    volumes.append(float(v or 0))
+
+        # Agregar precio actual
+        closes.append(float(price))
+        volumes.append(float(volumen or 0))
+
+        # Cálculos
+        rsi = calc_rsi(closes, 14)
+        sma20 = calc_sma(closes, 20)
+        sma50 = calc_sma(closes, 50)
+        sma200 = calc_sma(closes, 200)
+        vol_ratio = calc_volume_ratio(volumes, 20)
+        dist = calc_dist_52w(float(price), max52, min52)
+
+        signal, score, reasons = detect_signal(
+            rsi, sma20, sma50, sma200,
+            float(price), vol_ratio,
+            dist["dist_min_52w"], dist["dist_max_52w"]
+        )
+
+        return {
+            **base,
+            "price": price,
+            "var_dia": var_dia,
+            "apertura": apertura,
+            "maximo_dia": maximo_dia,
+            "minimo_dia": minimo_dia,
+            "volumen": volumen,
+            "max52": max52,
+            "min52": min52,
+            "rsi": rsi,
+            "sma20": sma20,
+            "sma50": sma50,
+            "sma200": sma200,
+            "vol_ratio": vol_ratio,
+            "dist_max_52w": dist["dist_max_52w"],
+            "dist_min_52w": dist["dist_min_52w"],
+            "signal": signal,
+            "score": score,
+            "reasons": reasons,
+            "closes_count": len(closes),
+        }
+    except Exception as e:
+        logger.error(f"Error analizando {ticker}: {e}")
+        return {**base, "error": str(e)}

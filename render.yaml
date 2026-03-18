@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: iol-dashboard-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: IOL_USERNAME
+        sync: false          # lo ponés manualmente en el dashboard de Render
+      - key: IOL_PASSWORD
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false          # ej: https://tu-app.netlify.app
+      - key: SELF_URL
+        sync: false          # la URL de este mismo servicio en Render
+    healthCheckPath: /health
