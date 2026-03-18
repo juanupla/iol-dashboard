@@ -25,19 +25,23 @@ PANEL_GENERAL_LIQUIDOS = [
 # Tickers verificados que cotizan como CEDEARs en BCBA
 # Removidos: MS, BLK, RCL (no disponibles), DIS→DISN, AXP→AXP (verificar)
 CEDEAR_TICKERS = [
-    # Tech
-    "AAPL","MSFT","GOOGL","AMZN","TSLA","META","NVDA","ORCL","ADBE","CRM",
-    "NFLX","AMD","INTC","QCOM","AVGO","TXN","CSCO","IBM","HPQ","DELL",
-    # Finance — MS y BLK no cotizan en BCBA como CEDEAR
-    "JPM","BAC","WFC","GS","AXP","V","MA","PYPL",
-    # Consumer
-    "KO","PEP","MCD","SBUX","NKE","DISN","AMGN","PFE","JNJ","MRK",
-    # Latam / Argentina related
-    "MELI","GLOB","DESP","BIOX","BABA","TSM","SONY","TM","VALE","PBR",
-    # ETFs / Commodities
-    "SPY","QQQ","GLD","SLV","XOM","CVX","BA","CAT","MMM",
-    # Airlines
-    "AAL","DAL","UAL","CCL",
+    "AAL","AAP","AAPL","ABBV","ABEV","ABNB","ABT","ACN","ACWI","ADBE","ADGO","ADI",
+    "ADP","ADS","AEG","AEM","AI","AIG","AKO.B","ALAB","AMAT","AMD","AMGN","AMX",
+    "AMZN","ANF","ARCO","ARKK","ARM","ASML","ASR","ASTS","AVGO","AVY","AXIA","AXP",
+    "AZN","B","BA","BA.C","BABA","BAK","BB","BBAS3","BBD","BBV","BCS","BHP",
+    "BIDU","BIIB","BIOX","BITF","BK","BKNG","BKR","BMY","BNG","BP","BRKB","BSBR",
+    "C","CAAP","CAH","CAR","CAT","CCL","CDE","CEG","CL","COIN","COPX","COST",
+    "CRM","CRWV","CSCO","CSNA3","CVS","CVX","CX","DAL","DD","DE","DEO","DESP",
+    "DHR","DIA","DISN","DOCU","DOW","E","EA","EBAY","EEM","EFX","ELPC","EMBJ",
+    "EQNR","ERIC","ETHA","F","FMX","FSLR","GE","GILD","GLD","GLOB","GM","GOLD",
+    "GOOGL","GS","HAL","HD","HOG","HPQ","HSBC","HUT","IBIT","IBM","ILF","INFY",
+    "INTC","ITA","ITUB","JNJ","JPM","KGC","KO","LLY","LMT","LND","LRCX","MA",
+    "MAR","MCD","MELI","META","MGLU3","MMM","MO","MRK","MSFT","MU","NEM","NFLX",
+    "NKE","NOW","NU","NVDA","ORCL","PAGS","PANW","PATH","PBR","PEP","PFE","PM",
+    "PYPL","QCOM","QQQ","RIOT","RTX","SATL","SBUX","SCCO","SH","SLV","SMH","SNAP",
+    "SNOW","SONY","SPY","STLA","SYY","T","TGT","TM","TSLA","TSM","TWLO","UAL",
+    "UBER","UPST","V","VALE","VIG","VIST","WEGE3","WFC","WMT","XLC","XLV","XOM",
+    "ZM",
 ]
 
 ALL_TICKERS = {
