@@ -185,15 +185,32 @@ def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA") -> dict:
         maximo_dia = cot.get("maximo")
         minimo_dia = cot.get("minimo")
 
-        hist = iol_client.get_historico(ticker, dias=120, mercado=mercado)
+        hist = iol_client.get_historico(ticker, dias=300, mercado=mercado)
         closes, volumes = [], []
+
+        # La API puede devolver lista directa o un dict con clave de datos
+        if isinstance(hist, dict):
+            # Algunos endpoints envuelven en {"historico": [...]} o similar
+            for key in ("historico", "datos", "series", "cotizaciones", "items"):
+                if key in hist and isinstance(hist[key], list):
+                    hist = hist[key]
+                    break
+
         if isinstance(hist, list):
-            for d in sorted(hist, key=lambda x: x.get("fechaHora", "")):
-                p = d.get("precio") or d.get("ultimoPrecio") or d.get("cierre")
+            for d in sorted(hist, key=lambda x: x.get("fechaHora", x.get("fecha", ""))):
+                p = (
+                    d.get("precio")
+                    or d.get("ultimoPrecio")
+                    or d.get("cierre")
+                    or d.get("ultimo")
+                )
                 v = d.get("volumenNominal") or d.get("volumen", 0)
                 if p:
                     closes.append(float(p))
                     volumes.append(float(v or 0))
+
+        if len(closes) < 15:
+            logger.warning(f"{ticker}: histórico insuficiente ({len(closes)} velas), RSI/SMAs no calculables")
 
         closes.append(float(price))
         volumes.append(float(volumen or 0))

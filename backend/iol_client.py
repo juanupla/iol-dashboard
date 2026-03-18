@@ -86,14 +86,36 @@ class IOLClient:
     def get_cotizacion(self, ticker, mercado="BCBA"):
         return self.get(f"/api/v2/{mercado}/Titulos/{ticker}/Cotizacion")
 
-    def get_historico(self, ticker, dias=120, mercado="BCBA"):
+    def get_historico(self, ticker, dias=300, mercado="BCBA"):
+        """
+        Obtiene serie histórica. Intenta primero con ajuste (para acciones locales),
+        si falla hace fallback sin ajuste (necesario para CEDEARs y algunos paneles).
+        dias=300 para tener datos suficientes para SMA200 (~200 días hábiles).
+        """
         hoy = datetime.now()
         desde = hoy - timedelta(days=dias)
         desde_str = desde.strftime("%Y-%m-%d")
         hasta_str = hoy.strftime("%Y-%m-%d")
-        return self.get(
-            f"/api/v2/{mercado}/Titulos/{ticker}/Cotizacion/seriehistorica/{desde_str}/{hasta_str}/ajustada"
-        )
+        base_path = f"/api/v2/{mercado}/Titulos/{ticker}/Cotizacion/seriehistorica/{desde_str}/{hasta_str}"
+
+        # Intentar primero con ajuste (acciones locales)
+        try:
+            result = self.get(f"{base_path}/ajustada")
+            if isinstance(result, list) and len(result) > 0:
+                return result
+        except Exception:
+            pass
+
+        # Fallback sin ajuste (CEDEARs y otros)
+        try:
+            result = self.get(f"{base_path}/sinAjustar")
+            if isinstance(result, list) and len(result) > 0:
+                return result
+        except Exception:
+            pass
+
+        # Segundo fallback: sin sufijo (algunos endpoints no lo requieren)
+        return self.get(base_path)
 
     def get_panel(self, panel, mercado="BCBA"):
         """Panel completo: acciones, cedears, etc."""
