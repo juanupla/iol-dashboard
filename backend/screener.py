@@ -19,36 +19,31 @@ MERVAL_TICKERS = [
 PANEL_GENERAL_LIQUIDOS = [
     "BBAR","CABK","CAPX","CARC","CTIO","DGCU2","DICA","DYCA","GCDI","GCLA",
     "GRIM","HAVA","INTR","INVJ","LEDE","LONG","METR","MOLA","MPAL","MTR",
-    "OEST","PATA","PGR","POLL","RIGO","SAMI","SANO","TGNO4","TGSU2","YPFD",
+    "OEST","PATA","PGR","POLL","RIGO","SAMI","SANO","TGNO4","TGSU2",
 ]
 
+# Tickers verificados que cotizan como CEDEARs en BCBA
+# Removidos: MS, BLK, RCL (no disponibles), DIS→DISN, AXP→AXP (verificar)
 CEDEAR_TICKERS = [
     # Tech
     "AAPL","MSFT","GOOGL","AMZN","TSLA","META","NVDA","ORCL","ADBE","CRM",
     "NFLX","AMD","INTC","QCOM","AVGO","TXN","CSCO","IBM","HPQ","DELL",
-    # Finance
-    "JPM","BAC","WFC","GS","MS","BLK","AXP","V","MA","PYPL",
+    # Finance — MS y BLK no cotizan en BCBA como CEDEAR
+    "JPM","BAC","WFC","GS","AXP","V","MA","PYPL",
     # Consumer
-    "KO","PEP","MCD","SBUX","NKE","DIS","AMGN","PFE","JNJ","MRK",
+    "KO","PEP","MCD","SBUX","NKE","DISN","AMGN","PFE","JNJ","MRK",
     # Latam / Argentina related
     "MELI","GLOB","DESP","BIOX","BABA","TSM","SONY","TM","VALE","PBR",
-    # ETFs
+    # ETFs / Commodities
     "SPY","QQQ","GLD","SLV","XOM","CVX","BA","CAT","MMM",
-    # Airlines / Travel
-    "AAL","DAL","UAL","CCL","RCL",
+    # Airlines
+    "AAL","DAL","UAL","CCL",
 ]
 
 ALL_TICKERS = {
     "merval": MERVAL_TICKERS,
     "panel":  PANEL_GENERAL_LIQUIDOS,
     "cedears": CEDEAR_TICKERS,
-}
-
-# Nombre del panel en la API de IOL para cada grupo
-IOL_PANEL_NAME = {
-    "cedears": "cedears",
-    "merval":  "merval",
-    "panel":   "acciones",
 }
 
 # ── Cálculos técnicos ─────────────────────────────────────────────────────────
@@ -59,10 +54,8 @@ def calc_rsi(closes: list, period: int = 14) -> Optional[float]:
     gains, losses = 0.0, 0.0
     for i in range(1, period + 1):
         diff = closes[i] - closes[i - 1]
-        if diff >= 0:
-            gains += diff
-        else:
-            losses -= diff
+        if diff >= 0: gains += diff
+        else: losses -= diff
     avg_gain = gains / period
     avg_loss = losses / period
     for i in range(period + 1, len(closes)):
@@ -154,30 +147,19 @@ def detect_signal(rsi, sma20, sma50, sma200, price, vol_ratio, dist_min_52w, dis
         score -= 1
         reasons.append({"texto": f"Cerca máx 52w ({dist_max_52w:.1f}%)", "tipo": "negativo"})
 
-    if score >= 4:
-        signal = "COMPRA FUERTE"
-    elif score >= 2:
-        signal = "COMPRA"
-    elif score <= -4:
-        signal = "VENTA FUERTE"
-    elif score <= -2:
-        signal = "VENTA"
-    elif score >= 1:
-        signal = "ALCISTA"
-    elif score <= -1:
-        signal = "BAJISTA"
-    else:
-        signal = "NEUTRO"
+    if score >= 4:   signal = "COMPRA FUERTE"
+    elif score >= 2: signal = "COMPRA"
+    elif score <= -4: signal = "VENTA FUERTE"
+    elif score <= -2: signal = "VENTA"
+    elif score >= 1:  signal = "ALCISTA"
+    elif score <= -1: signal = "BAJISTA"
+    else:             signal = "NEUTRO"
 
     return signal, score, reasons
 
 # ── Función principal de análisis ─────────────────────────────────────────────
 
-def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA", cot_prefetched: dict = None) -> dict:
-    """
-    Analiza un ticker. Si se pasa cot_prefetched (obtenido del panel en bloque),
-    evita un GET extra y reduce el rate limiting.
-    """
+def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA") -> dict:
     base = {
         "ticker": ticker,
         "mercado": mercado,
@@ -185,25 +167,22 @@ def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA", cot_prefetch
         "timestamp": datetime.now().isoformat(),
     }
     try:
-        # Cotización — usar prefetch si está disponible
-        cot = cot_prefetched if cot_prefetched else iol_client.get_cotizacion(ticker, mercado)
+        cot = iol_client.get_cotizacion(ticker, mercado)
 
         price = cot.get("ultimoPrecio") or cot.get("ultimo") or cot.get("precio")
         if not price:
             return {**base, "error": "sin precio"}
 
-        var_dia = cot.get("variacion") or cot.get("variacionPorcentual", 0)
-        volumen = cot.get("volumenNominal") or cot.get("volumen", 0)
-        max52 = cot.get("maximo52semanas")
-        min52 = cot.get("minimo52semanas")
-        apertura = cot.get("apertura")
+        var_dia    = cot.get("variacion") or cot.get("variacionPorcentual", 0)
+        volumen    = cot.get("volumenNominal") or cot.get("volumen", 0)
+        max52      = cot.get("maximo52semanas")
+        min52      = cot.get("minimo52semanas")
+        apertura   = cot.get("apertura")
         maximo_dia = cot.get("maximo")
         minimo_dia = cot.get("minimo")
 
-        # Serie histórica para cálculos técnicos
         hist = iol_client.get_historico(ticker, dias=120, mercado=mercado)
-        closes = []
-        volumes = []
+        closes, volumes = [], []
         if isinstance(hist, list):
             for d in sorted(hist, key=lambda x: x.get("fechaHora", "")):
                 p = d.get("precio") or d.get("ultimoPrecio") or d.get("cierre")
@@ -215,16 +194,15 @@ def analizar_ticker(iol_client, ticker: str, mercado: str = "BCBA", cot_prefetch
         closes.append(float(price))
         volumes.append(float(volumen or 0))
 
-        rsi    = calc_rsi(closes, 14)
-        sma20  = calc_sma(closes, 20)
-        sma50  = calc_sma(closes, 50)
-        sma200 = calc_sma(closes, 200)
+        rsi       = calc_rsi(closes, 14)
+        sma20     = calc_sma(closes, 20)
+        sma50     = calc_sma(closes, 50)
+        sma200    = calc_sma(closes, 200)
         vol_ratio = calc_volume_ratio(volumes, 20)
-        dist = calc_dist_52w(float(price), max52, min52)
+        dist      = calc_dist_52w(float(price), max52, min52)
 
         signal, score, reasons = detect_signal(
-            rsi, sma20, sma50, sma200,
-            float(price), vol_ratio,
+            rsi, sma20, sma50, sma200, float(price), vol_ratio,
             dist["dist_min_52w"], dist["dist_max_52w"]
         )
 

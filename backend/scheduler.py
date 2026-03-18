@@ -2,10 +2,10 @@
 Scheduler — corre el screener cada 15 minutos entre 11:00 y 17:00 Buenos Aires.
 Guarda resultados en cache compartido con FastAPI.
 
-Estrategia de llamadas a IOL:
-  1. Para cada grupo, intenta obtener el panel completo en un solo GET
-     (reduce N llamadas a 1 por grupo para cotizaciones).
-  2. Luego pide histórico ticker por ticker (necesario para RSI/SMAs).
+Estrategia simple y robusta:
+- Cada ticker se pide individualmente con get_cotizacion + get_historico.
+- No hay prefetch en bloque (la API v2 de IOL no lo soporta para todos los paneles).
+- Rate limit: 0.25s entre requests.
 """
 import logging
 import asyncio
@@ -16,7 +16,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from iol_client import iol
-from screener import analizar_ticker, ALL_TICKERS, IOL_PANEL_NAME
+from screener import analizar_ticker, ALL_TICKERS
 
 logger = logging.getLogger(__name__)
 BA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -25,38 +25,11 @@ BA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 cache = {
     "screener": {},
     "last_run":  None,
-    "next_run":  None,
     "running":   False,
     "progress":  0,
     "total":     0,
     "errors":    [],
 }
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def fetch_panel_cotizaciones(grupo: str) -> dict:
-    """
-    Intenta traer todas las cotizaciones del panel de un grupo en un solo request.
-    Devuelve dict {ticker: cot_data}. Si falla, devuelve {}.
-    """
-    try:
-        panel_name = IOL_PANEL_NAME.get(grupo, "acciones")
-        data = iol.get_panel(panel_name, "BCBA")
-        result = {}
-        # La respuesta es una lista de objetos con titulo.simbolo
-        if isinstance(data, list):
-            for item in data:
-                simbolo = (
-                    item.get("simbolo") or
-                    (item.get("titulo") or {}).get("simbolo") or
-                    item.get("ticker")
-                )
-                if simbolo:
-                    result[simbolo.upper()] = item
-        return result
-    except Exception as e:
-        logger.warning(f"No se pudo obtener panel {grupo}: {e}")
-        return {}
 
 # ── Lógica principal ──────────────────────────────────────────────────────────
 
@@ -66,9 +39,9 @@ async def run_screener():
         return
 
     now_ba = datetime.now(BA_TZ)
-    logger.info(f"[{now_ba.strftime('%H:%M:%S')}] Iniciando screener completo...")
+    logger.info(f"[{now_ba.strftime('%H:%M:%S')}] Iniciando screener...")
 
-    cache["running"] = True
+    cache["running"]  = True
     cache["last_run"] = now_ba.isoformat()
     cache["errors"]   = []
 
@@ -79,31 +52,27 @@ async def run_screener():
     loop = asyncio.get_event_loop()
 
     for grupo, tickers in ALL_TICKERS.items():
-        # Paso 1: obtener cotizaciones del panel en bloque (1 request por grupo)
-        logger.info(f"Obteniendo panel {grupo} ({len(tickers)} tickers)...")
-        panel_cots = await loop.run_in_executor(None, fetch_panel_cotizaciones, grupo)
-        logger.info(f"Panel {grupo}: {len(panel_cots)} cotizaciones obtenidas")
-
-        # Paso 2: analizar cada ticker (histórico individual)
+        logger.info(f"Procesando grupo {grupo} ({len(tickers)} tickers)...")
         for ticker in tickers:
             try:
-                cot_pre = panel_cots.get(ticker)  # None si no vino en el panel
                 result = await loop.run_in_executor(
-                    None, analizar_ticker, iol, ticker, "BCBA", cot_pre
+                    None, analizar_ticker, iol, ticker, "BCBA"
                 )
                 result["grupo"] = grupo
                 cache["screener"][ticker] = result
+                if result.get("error"):
+                    logger.warning(f"  {ticker}: {result['error']}")
             except Exception as e:
-                logger.error(f"Error {ticker}: {e}")
+                logger.error(f"  {ticker} excepción: {e}")
                 cache["errors"].append(f"{ticker}: {e}")
 
             cache["progress"] += 1
-            await asyncio.sleep(0.25)  # gentil con IOL
+            await asyncio.sleep(0.25)
 
     cache["running"] = False
     ok  = sum(1 for r in cache["screener"].values() if not r.get("error"))
-    err = len(cache["errors"])
-    logger.info(f"Screener completo — {ok} OK, {err} errores de {total} tickers")
+    err = sum(1 for r in cache["screener"].values() if r.get("error"))
+    logger.info(f"Screener completo — {ok} OK, {err} con error, de {total} tickers")
 
 def ping_self():
     """Evita que Render duerma el servicio durante horario de mercado."""
@@ -112,7 +81,6 @@ def ping_self():
     if url:
         try:
             req.get(f"{url}/health", timeout=10)
-            logger.debug("Ping anti-sleep OK")
         except Exception:
             pass
 
@@ -121,7 +89,6 @@ def ping_self():
 def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=BA_TZ)
 
-    # Screener cada 15 min, lunes a viernes, 11:00-17:00
     scheduler.add_job(
         run_screener,
         CronTrigger(
@@ -136,7 +103,6 @@ def create_scheduler() -> AsyncIOScheduler:
         coalesce=True,
     )
 
-    # Ping anti-sleep cada 14 min durante horario de mercado
     scheduler.add_job(
         ping_self,
         CronTrigger(
