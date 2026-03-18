@@ -1,63 +1,70 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow:wght@300;400;500&display=swap');
+
 :root {
-  --bg: #070711;
-  --bg1: #0c0c1a;
-  --bg2: #111128;
-  --bg3: #1a1a35;
-  --border: #1e1e3a;
-  --border2: #2a2a50;
-  --text: #e2e2f0;
-  --text2: #8888aa;
-  --text3: #55556a;
-  --accent: #6c63ff;
-  --accent2: #8b85ff;
-  --green: #00e676;
-  --green2: #00c853;
-  --red: #ff1744;
-  --red2: #d50000;
-  --yellow: #ffd740;
-  --orange: #ff9100;
-  --mono: 'IBM Plex Mono', monospace;
-  --sans: 'Space Grotesk', sans-serif;
+  --bg:      #05050d;
+  --bg1:     #09091a;
+  --bg2:     #0e0e22;
+  --bg3:     #14142e;
+  --bg4:     #1a1a3a;
+  --border:  #1c1c3a;
+  --border2: #252550;
+  --text:    #e8e8f0;
+  --text2:   #9090b0;
+  --text3:   #50507a;
+  --text4:   #30305a;
+
+  --green:   #00e5a0;
+  --green2:  #00b87a;
+  --green3:  #003d28;
+  --red:     #ff3860;
+  --red2:    #cc1f45;
+  --red3:    #3d0015;
+  --yellow:  #ffd060;
+  --orange:  #ff8c42;
+  --blue:    #4d9fff;
+  --purple:  #9b7fff;
+
+  --mono: 'DM Mono', monospace;
+  --cond: 'Barlow Condensed', sans-serif;
+  --body: 'Barlow', sans-serif;
+
+  --radius: 8px;
+  --radius-sm: 5px;
 }
 
-html, body, #root { height: 100%; }
-body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; overflow-x: hidden; }
+html, body, #root { height: 100%; background: var(--bg); }
+body { color: var(--text); font-family: var(--body); font-size: 14px; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg1); }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
-button { cursor: pointer; font-family: var(--sans); }
-input, select { font-family: var(--sans); }
+button { cursor: pointer; font-family: var(--body); border: none; }
+input, select { font-family: var(--body); }
 
-.positive { color: var(--green) !important; }
-.negative { color: var(--red) !important; }
-.neutral  { color: var(--text2) !important; }
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes fadeUp  { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@keyframes pulse   { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+@keyframes shimmer { 0% { background-position:-200% 0; } 100% { background-position:200% 0; } }
 
-@keyframes pulse-line {
-  0%   { opacity: 1; }
-  50%  { opacity: 0.4; }
-  100% { opacity: 1; }
-}
-@keyframes slide-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-@keyframes shimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-.animate-in { animation: slide-in 0.3s ease; }
+.animate-in { animation: fadeUp .25s ease both; }
 
 .skeleton {
   background: linear-gradient(90deg, var(--bg2) 25%, var(--bg3) 50%, var(--bg2) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: 4px;
+  animation: shimmer 1.4s infinite;
+  border-radius: var(--radius-sm);
 }
+
+.score-5  { background: linear-gradient(90deg,#003d28 0%,transparent 100%); border-left:2px solid var(--green)!important; }
+.score-4  { background: linear-gradient(90deg,#002d1e 0%,transparent 100%); border-left:2px solid var(--green2)!important; }
+.score-3  { background: linear-gradient(90deg,#001f15 0%,transparent 100%); border-left:2px solid #009960!important; }
+.score-2  { background: linear-gradient(90deg,#001510 0%,transparent 100%); border-left:2px solid #006640!important; }
+.score-n2 { background: linear-gradient(90deg,#200010 0%,transparent 100%); border-left:2px solid #660020!important; }
+.score-n3 { background: linear-gradient(90deg,#2d0018 0%,transparent 100%); border-left:2px solid var(--red2)!important; }
+.score-n4 { background: linear-gradient(90deg,#3d0020 0%,transparent 100%); border-left:2px solid var(--red)!important; }
+
+@media (max-width: 768px) { .hide-mobile { display:none!important; } }
+@media (min-width: 769px) { .show-mobile { display:none!important; } }

@@ -1,199 +1,130 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
+import { SignalChip, ScoreDisplay, RsiPill, Pct, ReasonTags, getScoreClass, getMercadoStatus } from './shared'
 
-const SIGNAL_STYLE = {
-  'COMPRA FUERTE': { bg: '#002916', border: '#00e676', color: '#00e676' },
-  'COMPRA':        { bg: '#001a0f', border: '#00c853', color: '#00c853' },
-  'ALCISTA':       { bg: '#0d1a2e', border: '#448aff', color: '#82b1ff' },
-  'NEUTRO':        { bg: '#111128', border: '#2a2a50', color: '#666688' },
-  'BAJISTA':       { bg: '#1a1000', border: '#ff9100', color: '#ffcc02' },
-  'VENTA':         { bg: '#1a0008', border: '#d50000', color: '#ff5252' },
-  'VENTA FUERTE':  { bg: '#200005', border: '#ff1744', color: '#ff1744' },
+function sortCompras(items) {
+  return [...items].sort((a,b) => {
+    if (b.score !== a.score) return b.score - a.score
+    return (a.rsi??50) - (b.rsi??50)  // RSI más bajo primero (más sobrevendido)
+  })
+}
+function sortVentas(items) {
+  return [...items].sort((a,b) => {
+    if (a.score !== b.score) return a.score - b.score
+    return (b.rsi??50) - (a.rsi??50)  // RSI más alto primero (más sobrecomprado)
+  })
 }
 
-function SignalChip({ signal }) {
-  const st = SIGNAL_STYLE[signal] || SIGNAL_STYLE['NEUTRO']
+function OportunidadRow({ item }) {
+  const [hover, setHover] = useState(false)
+  const sc = getScoreClass(item.score)
   return (
-    <span style={{
-      background: st.bg, border: `1px solid ${st.border}`, color: st.color,
-      padding: '2px 9px', borderRadius: 10, fontSize: 10, fontWeight: 700,
-      letterSpacing: 1.2, whiteSpace: 'nowrap',
-    }}>
-      {signal}
-    </span>
-  )
-}
-
-function ScoreBar({ score }) {
-  const clamped = Math.max(-5, Math.min(5, score || 0))
-  const pct = ((clamped + 5) / 10) * 100
-  const color = score >= 2 ? 'var(--green)' : score <= -2 ? 'var(--red)' : 'var(--yellow)'
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <div style={{ width: 48, height: 4, background: 'var(--bg)', borderRadius: 2 }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 2 }} />
+    <div className={sc}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{
+        display:'grid', gridTemplateColumns:'90px 95px 64px 90px 80px 1fr',
+        gap:'0 10px', alignItems:'center',
+        padding:'9px 14px', borderRadius:'var(--radius-sm)',
+        borderLeft:'2px solid var(--border)', marginBottom:3,
+        transition:'background .12s',
+        background: hover ? 'var(--bg3)' : 'var(--bg2)',
+      }}>
+      <div>
+        <div style={{ fontFamily:'var(--mono)', fontWeight:500, fontSize:14, color:'var(--text)' }}>{item.ticker}</div>
+        <div style={{ fontFamily:'var(--cond)', fontSize:9, color:'var(--text3)', letterSpacing:1, textTransform:'uppercase', marginTop:1 }}>{item.grupo}</div>
       </div>
-      <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color }}>{score > 0 ? '+' : ''}{score}</span>
+      <div>
+        <div style={{ fontFamily:'var(--mono)', fontSize:13, color:'var(--text2)' }}>${(item.price||0).toLocaleString('es-AR',{maximumFractionDigits:2})}</div>
+        <Pct v={item.var_dia} size={11} />
+      </div>
+      <RsiPill v={item.rsi} />
+      <ScoreDisplay score={item.score} />
+      <SignalChip signal={item.signal} size="small" />
+      <div className="hide-mobile"><ReasonTags reasons={item.reasons} /></div>
     </div>
   )
 }
 
-function Pct({ value }) {
-  if (value === null || value === undefined) return <span style={{ color: 'var(--text3)' }}>—</span>
-  const cl = value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral'
-  return <span className={cl}>{value > 0 ? '+' : ''}{value.toFixed(2)}%</span>
-}
-
-function CardSection({ title, color, items, renderRow, emptyMsg }) {
+function Panel({ title, color, items, emptyMsg }) {
   return (
-    <div style={s.card}>
-      <div style={{ ...s.cardHeader, borderColor: color }}>
-        <span style={{ color }}>{title}</span>
-        <span style={s.count}>{items.length}</span>
+    <div style={s.panel}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, padding:'0 4px' }}>
+        <span style={{ fontFamily:'var(--cond)', fontSize:13, fontWeight:700, textTransform:'uppercase', letterSpacing:2, color }}>{title}</span>
+        <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text3)', background:'var(--bg3)', padding:'1px 8px', borderRadius:10 }}>{items.length}</span>
       </div>
-      {items.length === 0
-        ? <p style={s.empty}>{emptyMsg}</p>
-        : (
-          <div style={s.tableWrap}>
-            <table style={s.table}>
-              <thead>
-                <tr style={s.thead}>
-                  <th style={s.th}>Ticker</th>
-                  <th style={s.th}>Precio</th>
-                  <th style={s.th}>Var%</th>
-                  <th style={s.th}>RSI</th>
-                  <th style={s.th}>Score</th>
-                  <th style={s.th}>Señal</th>
-                  {renderRow.extraHeaders?.map(h => <th key={h} style={s.th}>{h}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {items.map(item => (
-                  <tr key={item.ticker} style={s.tr}>
-                    <td style={s.tdTicker}>{item.ticker}</td>
-                    <td style={s.tdMono}>${(item.price || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })}</td>
-                    <td style={s.td}><Pct value={item.var_dia} /></td>
-                    <td style={s.td}><RsiCell value={item.rsi} /></td>
-                    <td style={s.td}><ScoreBar score={item.score} /></td>
-                    <td style={s.td}><SignalChip signal={item.signal} /></td>
-                    {renderRow.extra?.(item)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
+      {items.length > 0 && (
+        <div style={{ display:'grid', gridTemplateColumns:'90px 95px 64px 90px 80px 1fr', gap:'0 10px', padding:'3px 14px', marginBottom:4 }}>
+          {['TICKER','PRECIO','RSI','SCORE','SEÑAL','ANÁLISIS'].map(h => (
+            <span key={h} style={{ fontFamily:'var(--cond)', fontSize:9, color:'var(--text3)', letterSpacing:1.5 }}
+              className={h==='ANÁLISIS'?'hide-mobile':''}>{h}</span>
+          ))}
+        </div>
+      )}
+      {items.length===0
+        ? <p style={{ color:'var(--text3)', fontSize:12, padding:'14px' }}>{emptyMsg}</p>
+        : items.map(item => <OportunidadRow key={item.ticker} item={item} />)
       }
     </div>
   )
 }
 
-function RsiCell({ value }) {
-  if (value === null || value === undefined) return <span style={{ color: 'var(--text3)' }}>—</span>
-  const color = value < 30 ? 'var(--green)' : value > 70 ? 'var(--red)' : 'var(--text2)'
-  return <span style={{ fontFamily: 'var(--mono)', color, fontSize: 12 }}>{value}</span>
-}
-
-export default function Oportunidades() {
-  const [data, setData] = useState(null)
+export default function Oportunidades({ refreshKey }) {
+  const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
+  const mercado = getMercadoStatus()
 
-  useEffect(() => {
-    api.oportunidades()
-      .then(setData)
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+  const load = () => {
+    setLoading(true)
+    api.oportunidades().then(setData).catch(console.error).finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [refreshKey])
 
   if (loading) return <LoadingSkeleton />
 
-  if (!data || (!data.top_compras?.length && !data.top_ventas?.length && !data.cerca_minimo_52w?.length && !data.volumen_anomalo?.length)) {
-    return (
-      <div style={s.emptyState}>
-        <div style={{ fontSize: 48 }}>🎯</div>
-        <h2 style={{ color: 'var(--text2)', marginTop: 12 }}>Sin oportunidades todavía</h2>
-        <p style={{ color: 'var(--text3)', marginTop: 6, fontSize: 13 }}>
-          El screener se ejecuta automáticamente entre las 11:00 y las 17:00 (Buenos Aires).<br/>
-          También podés ejecutarlo manualmente con el botón ↻ en la barra superior.
-        </p>
-      </div>
-    )
-  }
+  const noData = !data || (!data.top_compras?.length && !data.top_ventas?.length && !data.cerca_minimo_52w?.length && !data.volumen_anomalo?.length)
 
   return (
     <div style={s.root}>
-      <div style={s.pageTitle}>
-        <h1 style={s.title}>Panel de Oportunidades</h1>
-        {data.last_run && (
-          <span style={s.subtitle}>
-            Última actualización: {new Date(data.last_run).toLocaleString('es-AR')}
-          </span>
+      {/* Info bar */}
+      <div style={s.infoBar}>
+        {data?.last_run && (
+          <span style={s.lastRun}>Último scan: {new Date(data.last_run).toLocaleString('es-AR')}</span>
+        )}
+        {noData && (
+          <div style={s.noDataNote}>
+            {mercado.isOpen
+              ? '⏳ El screener está corriendo por primera vez...'
+              : `🌙 Mercado cerrado — ${mercado.nextEvent}. Los datos se actualizan automáticamente cuando abre.`}
+          </div>
         )}
       </div>
 
-      <div style={s.grid}>
-        <CardSection
-          title="🟢 Top Compras"
-          color="var(--green)"
-          items={data.top_compras || []}
-          renderRow={{}}
-          emptyMsg="No hay señales de compra actualmente"
-        />
-        <CardSection
-          title="🔴 Top Ventas / Tomar Ganancia"
-          color="var(--red)"
-          items={data.top_ventas || []}
-          renderRow={{}}
-          emptyMsg="No hay señales de venta actualmente"
-        />
-        <CardSection
-          title="📍 Cerca del Mínimo 52 Semanas"
-          color="var(--yellow)"
-          items={data.cerca_minimo_52w || []}
-          renderRow={{
-            extraHeaders: ['Dist. Mín 52w'],
-            extra: (item) => (
-              <td style={s.td}>
-                <span style={{ color: 'var(--yellow)', fontFamily: 'var(--mono)', fontSize: 12 }}>
-                  +{item.dist_min_52w?.toFixed(1)}%
-                </span>
-              </td>
-            ),
-          }}
-          emptyMsg="Sin activos cerca de mínimos"
-        />
-        <CardSection
-          title="⚡ Volumen Anómalo"
-          color="var(--orange)"
-          items={data.volumen_anomalo || []}
-          renderRow={{
-            extraHeaders: ['Vol Ratio'],
-            extra: (item) => (
-              <td style={s.td}>
-                <span style={{ color: 'var(--orange)', fontFamily: 'var(--mono)', fontSize: 12 }}>
-                  {item.vol_ratio?.toFixed(1)}x
-                </span>
-              </td>
-            ),
-          }}
-          emptyMsg="Sin volumen anómalo detectado"
-        />
-      </div>
+      {!noData && (
+        <>
+          <div style={s.mainGrid}>
+            <Panel title="🟢 Mejores oportunidades de compra" color="var(--green)" items={sortCompras(data.top_compras||[])} emptyMsg="Sin señales de compra" />
+            <Panel title="🔴 Señales de venta / tomar ganancia" color="var(--red)"   items={sortVentas(data.top_ventas||[])}  emptyMsg="Sin señales de venta" />
+          </div>
+          <div style={s.secondGrid}>
+            <Panel title="📍 Cerca del mínimo 52 semanas" color="var(--yellow)" items={(data.cerca_minimo_52w||[]).slice(0,8)} emptyMsg="Sin activos cerca de mínimos" />
+            <Panel title="⚡ Volumen anómalo"              color="var(--orange)" items={(data.volumen_anomalo||[]).slice(0,8)}  emptyMsg="Sin volumen anómalo" />
+          </div>
+        </>
+      )}
     </div>
   )
 }
 
 function LoadingSkeleton() {
   return (
-    <div style={{ padding: 20 }}>
-      <div className="skeleton" style={{ height: 32, width: 280, marginBottom: 20 }} />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      <div className="skeleton" style={{ height:18, width:220 }} />
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
         {[1,2,3,4].map(i => (
-          <div key={i} style={{ background: 'var(--bg1)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
-            <div className="skeleton" style={{ height: 20, width: 140, marginBottom: 12 }} />
-            {[1,2,3].map(j => (
-              <div key={j} className="skeleton" style={{ height: 14, marginBottom: 8 }} />
-            ))}
+          <div key={i} style={{ background:'var(--bg1)', border:'1px solid var(--border)', borderRadius:'var(--radius)', padding:14 }}>
+            <div className="skeleton" style={{ height:14, width:140, marginBottom:12 }} />
+            {[1,2,3,4].map(j => <div key={j} className="skeleton" style={{ height:36, marginBottom:4, borderRadius:'var(--radius-sm)' }} />)}
           </div>
         ))}
       </div>
@@ -202,26 +133,11 @@ function LoadingSkeleton() {
 }
 
 const s = {
-  root: { display: 'flex', flexDirection: 'column', gap: 20 },
-  pageTitle: { display: 'flex', alignItems: 'baseline', gap: 16 },
-  title: { fontSize: 22, fontWeight: 700, color: 'var(--text)' },
-  subtitle: { fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--mono)' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(600px, 1fr))', gap: 16 },
-  card: { background: 'var(--bg1)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' },
-  cardHeader: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '12px 16px', borderBottom: '1px solid',
-    fontWeight: 700, fontSize: 14,
-  },
-  count: { background: 'var(--bg3)', color: 'var(--text2)', padding: '1px 8px', borderRadius: 10, fontSize: 12 },
-  tableWrap: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  thead: { background: 'var(--bg)' },
-  th: { padding: '8px 12px', textAlign: 'left', color: 'var(--text3)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap' },
-  tr: { borderBottom: '1px solid var(--border)' },
-  td: { padding: '9px 12px', color: 'var(--text2)' },
-  tdTicker: { padding: '9px 12px', color: 'var(--text)', fontWeight: 700, fontFamily: 'var(--mono)', fontSize: 13, letterSpacing: 1 },
-  tdMono: { padding: '9px 12px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)' },
-  empty: { padding: '24px 16px', color: 'var(--text3)', fontSize: 13, textAlign: 'center' },
-  emptyState: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '80px 0', textAlign: 'center' },
+  root:       { display:'flex', flexDirection:'column', gap:14 },
+  infoBar:    { display:'flex', flexDirection:'column', gap:6 },
+  lastRun:    { fontFamily:'var(--mono)', fontSize:11, color:'var(--text3)', textAlign:'right' },
+  noDataNote: { background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:'var(--radius)', padding:'12px 16px', color:'var(--text3)', fontSize:13, textAlign:'center' },
+  mainGrid:   { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,540px),1fr))', gap:14 },
+  secondGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,480px),1fr))', gap:14 },
+  panel:      { background:'var(--bg1)', border:'1px solid var(--border)', borderRadius:'var(--radius)', padding:14, overflow:'hidden' },
 }
